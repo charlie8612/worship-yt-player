@@ -9,22 +9,21 @@
 ## 快速開始（Phase 0 原型）
 
 ```bash
-# 1. 下載本機平台的 yt-dlp + ffmpeg binary（零系統污染）
+# 1. 下載本機平台的 yt-dlp + ffmpeg binary（零系統污染、不裝到系統）
 ./scripts/fetch-binaries.sh
 
-# 2. 抓一首詩歌的音訊跟字幕到 test/
-./helper/bin/darwin-arm64/yt-dlp \
-  --ffmpeg-location ./helper/bin/darwin-arm64/ffmpeg \
-  -x --audio-format mp3 \
-  --write-sub --sub-lang en-US \
-  -o "test/song.%(ext)s" \
-  "https://www.youtube.com/watch?v=..."
+# 2. 下載測試用詩歌的音訊 + 字幕（預設：讚美之泉「禱告的力量」）
+#    要換成自己的歌：./scripts/fetch-sample.sh "https://www.youtube.com/watch?v=..."
+./scripts/fetch-sample.sh
 
 # 3. 開本地 http server
 cd test && python3 -m http.server 8765
 
 # 4. 瀏覽器開 http://localhost:8765/player.html
 ```
+
+> 注意：`test/song.mp3` 和字幕檔不會進入 git（版權內容）。每位使用者各自跑
+> `fetch-sample.sh` 在自己機器上下載，屬於個人使用範圍。
 
 ## 主要功能（已實作）
 
