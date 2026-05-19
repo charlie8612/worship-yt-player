@@ -1,0 +1,16 @@
+# Copyrighted content — do not commit
+test/song.mp3
+test/*.vtt
+test/*.srt
+test/*.m4a
+test/*.webm
+test/*.opus
+
+# Binaries — fetched per-platform via scripts/fetch-binaries.sh
+helper/bin/
+
+# Logs / temp
+*.log
+.DS_Store
+node_modules/
+*.swp

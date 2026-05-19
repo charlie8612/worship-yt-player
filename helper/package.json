@@ -1,0 +1,13 @@
+{
+  "name": "worship-player-helper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native messaging host for Worship YT Player extension",
+  "main": "src/host.js",
+  "bin": {
+    "worship-player-host": "src/host.js"
+  },
+  "scripts": {
+    "start": "node src/host.js"
+  }
+}

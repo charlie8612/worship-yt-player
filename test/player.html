@@ -1,0 +1,789 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Worship Player — Crossfade Test</title>
+  <style>
+    body { font: 14px -apple-system, system-ui, sans-serif; max-width: 940px; margin: 24px auto; padding: 0 16px; color: #222; }
+    h1 { font-size: 20px; }
+    h2 { font-size: 15px; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+    button { padding: 5px 10px; font: inherit; cursor: pointer; margin-right: 4px; background: white; border: 1px solid #ccc; border-radius: 3px; }
+    button:hover { background: #f4f4f4; }
+    button.primary { background: #2563eb; color: white; border-color: #1d4ed8; }
+    button.danger { background: white; color: #dc2626; border-color: #fca5a5; }
+    button.success { background: #16a34a; color: white; border-color: #15803d; }
+    button.tiny { padding: 2px 6px; font-size: 11px; }
+    input { padding: 4px 6px; font: inherit; box-sizing: border-box; border: 1px solid #ccc; border-radius: 3px; }
+    .row { display: flex; gap: 10px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+    .hint { color: #666; font-size: 12px; }
+
+    /* Scrubber */
+    .scrubber-wrap { position: relative; height: 64px; background: #f4f4f4; border-radius: 4px; overflow: hidden; cursor: pointer; user-select: none; }
+    .scrubber-fill { position: absolute; top: 0; left: 0; height: 100%; background: #c7d2fe; pointer-events: none; opacity: .5; }
+    .scrubber-marker { position: absolute; top: 0; width: 2px; height: 100%; background: #dc2626; pointer-events: none; z-index: 3; }
+    .section-band { position: absolute; bottom: 18px; height: 18px; background: rgba(34, 197, 94, .4); border-left: 2px solid #16a34a; border-right: 2px solid #16a34a; pointer-events: none; font-size: 10px; color: #14532d; padding: 0 3px; line-height: 18px; overflow: hidden; white-space: nowrap; }
+    .seq-band { position: absolute; top: 4px; height: 30px; background: rgba(59, 130, 246, .35); border: 1px solid #2563eb; pointer-events: none; font-size: 11px; color: #1e3a8a; padding: 0 4px; line-height: 30px; overflow: hidden; white-space: nowrap; box-sizing: border-box; }
+    .seq-overlap { position: absolute; top: 4px; height: 30px; background: rgba(220, 38, 38, .35); pointer-events: none; z-index: 2; }
+    .lyric-tick { position: absolute; bottom: 0; width: 1px; height: 14px; background: #6b7280; pointer-events: none; }
+    .scrubber-time { position: absolute; top: 4px; left: 6px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #374151; pointer-events: none; z-index: 2; }
+
+    /* Palette / Sequence tables */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 5px 6px; text-align: left; border-bottom: 1px solid #eee; vertical-align: middle; }
+    th { font-size: 11px; color: #666; font-weight: normal; }
+    .name-input { width: 130px; }
+    .num-input { width: 64px; }
+    .now { background: #fef3c7 !important; }
+    .section-ref { background: #ecfdf5; color: #14532d; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+    .section-ref.tweaked { background: #fef9c3; color: #713f12; }
+    .missing-ref { background: #fee2e2; color: #991b1b; }
+
+    .status { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: #f4f4f4; padding: 8px; border-radius: 4px; max-height: 160px; overflow: auto; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+
+<h1>Worship Player — Section Builder</h1>
+
+<h2>1. Audio</h2>
+<div class="row">
+  <button id="loadDefault">Load test/song.mp3</button>
+  <input type="file" id="filePicker" accept="audio/*">
+  <span id="loadStatus" class="hint">no audio loaded</span>
+</div>
+
+<h2>2. Scrubber</h2>
+<div id="scrubber" class="scrubber-wrap">
+  <div id="scrubFill" class="scrubber-fill"></div>
+  <div id="scrubMarker" class="scrubber-marker" style="left:0"></div>
+  <div id="scrubTime" class="scrubber-time">0:00 / 0:00</div>
+</div>
+<div class="row">
+  <button id="previewPlay">▶ Preview from marker</button>
+  <button id="previewStop" class="danger">■ Stop</button>
+  <span class="hint">Click bar to seek · green bands = sections · grey ticks = lyric lines</span>
+</div>
+
+<h2>3. Section palette</h2>
+<p class="hint">
+  Hit <b>Auto-detect</b> to seed sections from subtitles, then rename / split / adjust as needed.
+  Click <b>+ Sequence</b> on a section to append it to the play order below.
+</p>
+<div class="row">
+  <button id="autoDetect">Auto-detect from VTT</button>
+  <label class="hint">gap threshold (s): <input id="gapThresh" type="number" step="0.5" value="5" class="num-input"></label>
+  <button id="addSection">+ blank section</button>
+  <button id="clearSections" class="danger">clear all</button>
+</div>
+<table id="paletteTable">
+  <thead>
+    <tr>
+      <th style="width:30px">#</th>
+      <th>name</th>
+      <th style="width:80px">start</th>
+      <th style="width:80px">end</th>
+      <th style="width:60px">dur</th>
+      <th style="width:280px">actions</th>
+    </tr>
+  </thead>
+  <tbody id="palette"></tbody>
+</table>
+
+<h2>4. Sequence (play order)</h2>
+<p class="hint">
+  Drag handles or use ↑↓ to reorder. Same section can appear multiple times (chorus×3 is fine).
+  <b>crossfade</b> = seconds of overlap into the NEXT item.
+</p>
+<table id="seqTable">
+  <thead>
+    <tr>
+      <th style="width:30px">#</th>
+      <th>section</th>
+      <th style="width:80px">start</th>
+      <th style="width:80px">end</th>
+      <th style="width:80px">crossfade</th>
+      <th style="width:60px">dur</th>
+      <th style="width:60px">reset</th>
+      <th style="width:200px">actions</th>
+    </tr>
+  </thead>
+  <tbody id="sequence"></tbody>
+</table>
+<div class="row hint" id="seqEmpty">Sequence is empty — add sections from the palette above.</div>
+
+<h2>5. Sequence timeline</h2>
+<div id="seqScrubber" class="scrubber-wrap" style="height:54px">
+  <div id="seqFill" class="scrubber-fill"></div>
+  <div id="seqMarker" class="scrubber-marker" style="left:0"></div>
+  <div id="seqTime" class="scrubber-time">0:00 / 0:00</div>
+</div>
+<div class="row">
+  <button id="play" class="primary">▶ Play from start</button>
+  <button id="playFromMarker">▶ Play from marker</button>
+  <button id="stop" class="danger">■ Stop</button>
+  <button id="exportWav" class="success">⤓ Export WAV</button>
+  <span id="playStatus" class="hint">idle</span>
+</div>
+<div class="hint">Click timeline to seek · each band = one sequence item · darker overlap = crossfade region</div>
+
+<h2>6. Log</h2>
+<div id="log" class="status">(no events)</div>
+
+<script>
+// ============================================================================
+// State
+// ============================================================================
+let ctx = null;
+let buffer = null;
+let activeSources = [];
+let previewSrc = null;
+let previewMeta = null;
+let rafHandle = null;
+
+let lyricLines = [];                    // [{start, end, text}]
+let palette = [];                       // [{id, name, start, end}]
+let sequence = [];                      // [{sectionId, fade}]
+let nextSecId = 1;
+let scrubSeekTarget = 0;                // marker position in SOURCE time
+let seqSeekTarget = 0;                  // marker position in SEQUENCE time
+let seqPlayMeta = null;                 // { startedAtCtx, startedAtSeqT, totalDur, layout }
+let seqRafHandle = null;
+
+const $ = id => document.getElementById(id);
+const fmtTime = s => isFinite(s) ? `${Math.floor(s/60)}:${(s-Math.floor(s/60)*60).toFixed(1).padStart(4,'0')}` : '?:??';
+
+function log(msg) {
+  const t = ctx ? ctx.currentTime.toFixed(3) : '0.000';
+  $('log').textContent = `[ctx ${t}s] ${msg}\n` + $('log').textContent;
+}
+
+function ensureCtx() {
+  if (!ctx) { ctx = new (window.AudioContext || window.webkitAudioContext)(); log(`AudioContext created (${ctx.sampleRate} Hz)`); }
+  if (ctx.state === 'suspended') ctx.resume();
+}
+
+function getSection(id) { return palette.find(s => s.id === id); }
+
+// ============================================================================
+// Audio
+// ============================================================================
+async function loadFromUrl(url) {
+  ensureCtx();
+  log(`fetching ${url}...`);
+  const ab = await (await fetch(url)).arrayBuffer();
+  buffer = await ctx.decodeAudioData(ab);
+  $('loadStatus').textContent = `${buffer.duration.toFixed(2)}s @ ${buffer.sampleRate}Hz`;
+  log(`decoded: ${buffer.duration.toFixed(2)}s`);
+  renderScrubber();
+}
+async function loadFromFile(f) {
+  ensureCtx();
+  const ab = await f.arrayBuffer();
+  buffer = await ctx.decodeAudioData(ab);
+  $('loadStatus').textContent = `${f.name} — ${buffer.duration.toFixed(2)}s`;
+  renderScrubber();
+}
+$('loadDefault').addEventListener('click', () => loadFromUrl('song.mp3').catch(e => log('error: ' + e.message)));
+$('filePicker').addEventListener('change', e => { const f = e.target.files[0]; if (f) loadFromFile(f).catch(err => log(err.message)); });
+
+// ============================================================================
+// Scrubber
+// ============================================================================
+function renderScrubber() {
+  if (!buffer) return;
+  const w = $('scrubber').clientWidth;
+  $('scrubber').querySelectorAll('.section-band, .lyric-tick').forEach(el => el.remove());
+
+  for (const line of lyricLines) {
+    const tick = document.createElement('div');
+    tick.className = 'lyric-tick';
+    tick.style.left = `${(line.start / buffer.duration) * w}px`;
+    $('scrubber').appendChild(tick);
+  }
+  palette.forEach((s) => {
+    const band = document.createElement('div');
+    band.className = 'section-band';
+    band.style.left = `${(s.start / buffer.duration) * w}px`;
+    band.style.width = `${Math.max(2, ((s.end - s.start) / buffer.duration) * w)}px`;
+    band.title = `${s.name}: ${fmtTime(s.start)} → ${fmtTime(s.end)}`;
+    band.textContent = s.name;
+    $('scrubber').appendChild(band);
+  });
+  updateScrubMarker(scrubSeekTarget);
+}
+
+function updateScrubMarker(t) {
+  if (!buffer) return;
+  const w = $('scrubber').clientWidth;
+  const x = Math.max(0, Math.min(w, (t / buffer.duration) * w));
+  $('scrubMarker').style.left = `${x}px`;
+  $('scrubFill').style.width = `${x}px`;
+  $('scrubTime').textContent = `${fmtTime(t)} / ${fmtTime(buffer.duration)}`;
+}
+
+$('scrubber').addEventListener('click', e => {
+  if (!buffer) return;
+  const r = $('scrubber').getBoundingClientRect();
+  scrubSeekTarget = Math.max(0, Math.min(buffer.duration, ((e.clientX - r.left) / r.width) * buffer.duration));
+  updateScrubMarker(scrubSeekTarget);
+  log(`seek → ${fmtTime(scrubSeekTarget)}`);
+});
+
+function stopPreview() {
+  if (previewSrc) { try { previewSrc.stop(); } catch {} previewSrc = null; }
+  previewMeta = null;
+  if (rafHandle) { cancelAnimationFrame(rafHandle); rafHandle = null; }
+}
+
+function previewRange(start, end) {
+  if (!buffer) { log('no audio'); return; }
+  stopAll(); stopPreview(); ensureCtx();
+  previewSrc = ctx.createBufferSource();
+  previewSrc.buffer = buffer;
+  previewSrc.connect(ctx.destination);
+  const startCtx = ctx.currentTime + 0.05;
+  const dur = end != null ? Math.max(0, end - start) : undefined;
+  previewSrc.start(startCtx, start, dur);
+  previewMeta = { startedAtCtx: startCtx, startOffset: start, endOffset: end };
+  log(`preview ${fmtTime(start)}${end != null ? ' → ' + fmtTime(end) : ' →'}`);
+  tickScrubber();
+  if (dur != null) {
+    setTimeout(() => { if (previewSrc) stopPreview(); }, dur * 1000 + 200);
+  }
+}
+
+$('previewPlay').addEventListener('click', () => previewRange(scrubSeekTarget));
+$('previewStop').addEventListener('click', () => { stopPreview(); stopAll(); });
+
+function tickScrubber() {
+  if (!previewMeta) return;
+  const elapsed = ctx.currentTime - previewMeta.startedAtCtx;
+  const pos = previewMeta.startOffset + Math.max(0, elapsed);
+  if (pos < buffer.duration && (previewMeta.endOffset == null || pos < previewMeta.endOffset)) {
+    updateScrubMarker(pos);
+    scrubSeekTarget = pos;
+    rafHandle = requestAnimationFrame(tickScrubber);
+  } else {
+    stopPreview();
+  }
+}
+
+// ============================================================================
+// Subtitle parsing + auto-detect
+// ============================================================================
+function parseTimestamp(s) {
+  const p = s.split(':');
+  if (p.length === 3) return +p[0]*3600 + +p[1]*60 + +p[2];
+  if (p.length === 2) return +p[0]*60 + +p[1];
+  return +p[0];
+}
+
+function parseVtt(text) {
+  const lines = text.split(/\r?\n/);
+  const cues = [];
+  const re = /^(\d{1,2}:\d{2}(?::\d{2})?\.\d{3})\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?\.\d{3})/;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(re);
+    if (m) {
+      const text = [];
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() !== '') { text.push(lines[j]); j++; }
+      cues.push({ start: parseTimestamp(m[1]), end: parseTimestamp(m[2]), text: text.join(' ').trim() });
+      i = j;
+    }
+  }
+  return cues;
+}
+
+// Detect sections AND interludes (gaps between lyric clusters)
+function detectSectionsWithGaps(lyric, gapThresh, songDuration) {
+  if (!lyric.length) return [];
+  const clusters = [];
+  let cur = { start: lyric[0].start, end: lyric[0].end, lyrics: [lyric[0]] };
+  for (let i = 1; i < lyric.length; i++) {
+    const gap = lyric[i].start - cur.end;
+    if (gap > gapThresh) {
+      clusters.push(cur);
+      cur = { start: lyric[i].start, end: lyric[i].end, lyrics: [lyric[i]] };
+    } else {
+      cur.end = lyric[i].end;
+      cur.lyrics.push(lyric[i]);
+    }
+  }
+  clusters.push(cur);
+
+  // Build full list: intro (if any), then alternating cluster/interlude, then outro (if any)
+  const out = [];
+  if (clusters[0].start > 0.5) {
+    out.push({ kind: 'intro', start: 0, end: clusters[0].start });
+  }
+  for (let i = 0; i < clusters.length; i++) {
+    out.push({ kind: 'lyric', start: clusters[i].start, end: clusters[i].end, lyrics: clusters[i].lyrics });
+    if (i < clusters.length - 1) {
+      out.push({ kind: 'interlude', start: clusters[i].end, end: clusters[i+1].start });
+    }
+  }
+  if (songDuration && clusters[clusters.length-1].end < songDuration - 0.5) {
+    out.push({ kind: 'outro', start: clusters[clusters.length-1].end, end: songDuration });
+  }
+  return out;
+}
+
+// Heuristic naming: alternate verse/chorus based on lyric similarity to previous lyric clusters
+function guessNames(detected) {
+  let verseN = 0, chorusN = 0, interN = 0, bridgeN = 0;
+  const seen = []; // [{firstLine, name}]
+  const normalize = s => s.toLowerCase().replace(/[^a-z0-9一-鿿 ]/g, '').trim();
+
+  return detected.map((s, i) => {
+    if (s.kind === 'intro')     return { ...s, name: 'intro' };
+    if (s.kind === 'outro')     return { ...s, name: 'outro' };
+    if (s.kind === 'interlude') return { ...s, name: `interlude-${++interN}` };
+
+    const first = normalize(s.lyrics[0].text);
+    // Match against previously-named lyric sections
+    const match = seen.find(x => x.firstLine && (x.firstLine === first || x.firstLine.startsWith(first.slice(0, 12)) || first.startsWith(x.firstLine.slice(0, 12))));
+    if (match) {
+      return { ...s, name: match.name + `'` };  // reprise marker
+    }
+    // First time seeing — call it a verse, second unique = chorus heuristic (very rough)
+    const isFirstUnique = seen.length === 0;
+    const name = isFirstUnique ? `verse-${++verseN}` : `chorus-${++chorusN}`;
+    seen.push({ firstLine: first, name });
+    return { ...s, name };
+  });
+}
+
+async function autoDetect() {
+  if (!buffer) { log('load audio first'); return; }
+  try {
+    const txt = await (await fetch('song.en-US.vtt')).text();
+    lyricLines = parseVtt(txt);
+  } catch (e) {
+    log('vtt error: ' + e.message);
+    return;
+  }
+  const gap = parseFloat($('gapThresh').value) || 5;
+  const detected = detectSectionsWithGaps(lyricLines, gap, buffer.duration);
+  const named = guessNames(detected);
+  palette = named.map(s => ({ id: nextSecId++, name: s.name, start: +s.start.toFixed(2), end: +s.end.toFixed(2) }));
+  log(`auto-detected ${palette.length} sections (gap > ${gap}s)`);
+  renderPalette();
+  renderScrubber();
+}
+
+$('autoDetect').addEventListener('click', autoDetect);
+$('gapThresh').addEventListener('change', () => { if (lyricLines.length) autoDetect(); });
+
+$('addSection').addEventListener('click', () => {
+  const t = scrubSeekTarget || 0;
+  palette.push({ id: nextSecId++, name: 'section', start: +t.toFixed(2), end: +(Math.min(buffer ? buffer.duration : t + 10, t + 10)).toFixed(2) });
+  renderPalette();
+  renderScrubber();
+});
+
+$('clearSections').addEventListener('click', () => {
+  if (sequence.length && !confirm('Sequence references these sections. Clear anyway?')) return;
+  palette = [];
+  renderPalette();
+  renderScrubber();
+});
+
+// ============================================================================
+// Palette UI
+// ============================================================================
+function renderPalette() {
+  const host = $('palette');
+  host.innerHTML = '';
+  palette.forEach((s, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td><input class="name-input" data-k="name" value="${s.name}"></td>
+      <td><input class="num-input" type="number" step="0.01" data-k="start" value="${s.start}"></td>
+      <td><input class="num-input" type="number" step="0.01" data-k="end" value="${s.end}"></td>
+      <td>${(s.end - s.start).toFixed(1)}s</td>
+      <td>
+        <button class="tiny" data-act="play">▶</button>
+        <button class="tiny success" data-act="add">+ Sequence</button>
+        <button class="tiny" data-act="insert" title="insert new section below this one">+ row↓</button>
+        <button class="tiny" data-act="seek" title="put marker at start">→start</button>
+        <button class="tiny danger" data-act="del">✕</button>
+      </td>
+    `;
+    tr.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const k = inp.dataset.k;
+        s[k] = k === 'name' ? inp.value : (parseFloat(inp.value) || 0);
+        renderPalette();
+        renderScrubber();
+        renderSequence();
+      });
+    });
+    tr.querySelector('[data-act=play]').addEventListener('click', () => previewRange(s.start, s.end));
+    tr.querySelector('[data-act=add]').addEventListener('click', () => {
+      sequence.push({ sectionId: s.id, fade: 1.5, start: s.start, end: s.end });
+      renderSequence();
+    });
+    tr.querySelector('[data-act=insert]').addEventListener('click', () => {
+      const idx = palette.indexOf(s);
+      const next = palette[idx + 1];
+      // Default: fill the gap between this section's end and next section's start
+      // (or this.end + 10s if no next, or use scrub marker if it's already inside the gap)
+      let defStart = s.end;
+      let defEnd = next ? next.start : Math.min((buffer ? buffer.duration : s.end + 10), s.end + 10);
+      if (scrubSeekTarget > s.end && (!next || scrubSeekTarget < next.start)) {
+        defStart = scrubSeekTarget;
+        defEnd = next ? next.start : Math.min((buffer ? buffer.duration : scrubSeekTarget + 10), scrubSeekTarget + 10);
+      }
+      const fresh = { id: nextSecId++, name: 'new-section', start: +defStart.toFixed(2), end: +defEnd.toFixed(2) };
+      palette.splice(idx + 1, 0, fresh);
+      renderPalette();
+      renderScrubber();
+      log(`inserted "${fresh.name}" at row ${idx + 2} (${fmtTime(fresh.start)}–${fmtTime(fresh.end)})`);
+    });
+    tr.querySelector('[data-act=seek]').addEventListener('click', () => {
+      scrubSeekTarget = s.start;
+      updateScrubMarker(scrubSeekTarget);
+    });
+    tr.querySelector('[data-act=del]').addEventListener('click', () => {
+      const inUse = sequence.some(q => q.sectionId === s.id);
+      if (inUse && !confirm(`"${s.name}" is used in the sequence. Delete?`)) return;
+      sequence = sequence.filter(q => q.sectionId !== s.id);
+      palette = palette.filter(x => x.id !== s.id);
+      renderPalette();
+      renderScrubber();
+      renderSequence();
+    });
+    host.appendChild(tr);
+  });
+}
+
+// ============================================================================
+// Sequence UI
+// ============================================================================
+function renderSequence() {
+  const host = $('sequence');
+  host.innerHTML = '';
+  $('seqEmpty').style.display = sequence.length ? 'none' : '';
+
+  sequence.forEach((item, i) => {
+    const sec = getSection(item.sectionId);
+    // Backfill start/end for older sequence items that didn't store them
+    if (item.start == null && sec) item.start = sec.start;
+    if (item.end   == null && sec) item.end   = sec.end;
+    const tr = document.createElement('tr');
+    tr.dataset.idx = i;
+    const isLast = i === sequence.length - 1;
+    const dur = Math.max(0, (item.end ?? 0) - (item.start ?? 0));
+    const tweaked = sec && (item.start !== sec.start || item.end !== sec.end);
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td>${sec
+        ? `<span class="section-ref${tweaked ? ' tweaked' : ''}">${sec.name}${tweaked ? ' *' : ''}</span>`
+        : `<span class="section-ref missing-ref">missing</span>`}</td>
+      <td><input class="num-input" type="number" step="0.01" value="${item.start ?? 0}" data-k="start" ${!sec ? 'disabled' : ''}></td>
+      <td><input class="num-input" type="number" step="0.01" value="${item.end ?? 0}" data-k="end" ${!sec ? 'disabled' : ''}></td>
+      <td><input class="num-input" type="number" step="0.1"  value="${item.fade}" data-k="fade" ${isLast ? 'disabled' : ''}></td>
+      <td>${dur.toFixed(1)}s</td>
+      <td><button class="tiny" data-act="reset" title="reset start/end to palette section" ${!tweaked ? 'disabled' : ''}>↺</button></td>
+      <td>
+        <button class="tiny" data-act="play" ${!sec ? 'disabled' : ''}>▶</button>
+        <button class="tiny" data-act="up" ${i === 0 ? 'disabled' : ''}>↑</button>
+        <button class="tiny" data-act="down" ${isLast ? 'disabled' : ''}>↓</button>
+        <button class="tiny danger" data-act="del">✕</button>
+      </td>
+    `;
+    tr.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('change', () => {
+        item[inp.dataset.k] = parseFloat(inp.value) || 0;
+        renderSequence();
+      });
+    });
+    tr.querySelector('[data-act=reset]')?.addEventListener('click', () => {
+      if (!sec) return;
+      item.start = sec.start;
+      item.end = sec.end;
+      renderSequence();
+    });
+    tr.querySelector('[data-act=play]')?.addEventListener('click', () => sec && previewRange(item.start, item.end));
+    tr.querySelector('[data-act=up]')?.addEventListener('click', () => { [sequence[i-1], sequence[i]] = [sequence[i], sequence[i-1]]; renderSequence(); });
+    tr.querySelector('[data-act=down]')?.addEventListener('click', () => { [sequence[i+1], sequence[i]] = [sequence[i], sequence[i+1]]; renderSequence(); });
+    tr.querySelector('[data-act=del]').addEventListener('click', () => { sequence.splice(i, 1); renderSequence(); });
+    host.appendChild(tr);
+  });
+  renderSeqScrubber();
+}
+
+// ============================================================================
+// Sequence layout (timeline math)
+// ============================================================================
+// Returns: { items: [{sec, fade, segDur, fadeIn, fadeOut, startInSeq, endInSeq}], total }
+function computeLayout() {
+  const items = sequence.map(q => ({ ...q, sec: getSection(q.sectionId) })).filter(q => q.sec);
+  const out = [];
+  let cursor = 0;
+  items.forEach((it, i) => {
+    const srcStart = it.start ?? it.sec.start;
+    const srcEnd   = it.end   ?? it.sec.end;
+    const segDur = Math.max(0, srcEnd - srcStart);
+    const fadeIn = (i === 0) ? 0 : Math.min(items[i-1].fade, segDur / 2);
+    const fadeOut = (i === items.length - 1) ? 0 : Math.min(it.fade, segDur / 2);
+    const startInSeq = (i === 0) ? 0 : (cursor - fadeIn);
+    const endInSeq = startInSeq + segDur;
+    out.push({ sec: it.sec, srcStart, srcEnd, fade: it.fade, segDur, fadeIn, fadeOut, startInSeq, endInSeq });
+    cursor = endInSeq;
+  });
+  return { items: out, total: cursor };
+}
+
+function renderSeqScrubber() {
+  const wrap = $('seqScrubber');
+  wrap.querySelectorAll('.seq-band, .seq-overlap').forEach(el => el.remove());
+  const { items, total } = computeLayout();
+  if (total <= 0) { updateSeqMarker(0, 0); return; }
+  const w = wrap.clientWidth;
+
+  items.forEach((it, i) => {
+    const band = document.createElement('div');
+    band.className = 'seq-band';
+    band.style.left = `${(it.startInSeq / total) * w}px`;
+    band.style.width = `${Math.max(2, ((it.endInSeq - it.startInSeq) / total) * w)}px`;
+    band.textContent = `${i+1}. ${it.sec.name}`;
+    band.title = `${it.sec.name} (${(it.endInSeq - it.startInSeq).toFixed(1)}s)`;
+    wrap.appendChild(band);
+
+    // Overlap (crossfade with next)
+    if (it.fadeOut > 0 && i < items.length - 1) {
+      const ov = document.createElement('div');
+      ov.className = 'seq-overlap';
+      const ovStart = it.endInSeq - it.fadeOut;
+      ov.style.left = `${(ovStart / total) * w}px`;
+      ov.style.width = `${Math.max(1, (it.fadeOut / total) * w)}px`;
+      ov.title = `crossfade ${it.fadeOut.toFixed(1)}s`;
+      wrap.appendChild(ov);
+    }
+  });
+  updateSeqMarker(seqSeekTarget, total);
+}
+
+function updateSeqMarker(t, totalOverride) {
+  const total = totalOverride != null ? totalOverride : computeLayout().total;
+  const w = $('seqScrubber').clientWidth;
+  const safe = Math.max(0, Math.min(total || 0, t));
+  const x = total > 0 ? (safe / total) * w : 0;
+  $('seqMarker').style.left = `${x}px`;
+  $('seqFill').style.width = `${x}px`;
+  $('seqTime').textContent = `${fmtTime(safe)} / ${fmtTime(total)}`;
+}
+
+$('seqScrubber').addEventListener('click', e => {
+  const { total } = computeLayout();
+  if (total <= 0) return;
+  const r = $('seqScrubber').getBoundingClientRect();
+  seqSeekTarget = Math.max(0, Math.min(total, ((e.clientX - r.left) / r.width) * total));
+  updateSeqMarker(seqSeekTarget, total);
+  log(`seq seek → ${fmtTime(seqSeekTarget)}`);
+});
+
+// ============================================================================
+// Sequence playback
+// ============================================================================
+function stopSeqRaf() { if (seqRafHandle) { cancelAnimationFrame(seqRafHandle); seqRafHandle = null; } }
+
+function stopAll() {
+  activeSources.forEach(s => { try { s.stop(); } catch {} });
+  activeSources = [];
+  seqPlayMeta = null;
+  stopSeqRaf();
+  $('playStatus').textContent = 'stopped';
+  document.querySelectorAll('#sequence tr').forEach(r => r.classList.remove('now'));
+}
+
+$('stop').addEventListener('click', () => { stopAll(); stopPreview(); });
+
+function playSequence(fromSeqT = 0) {
+  if (!buffer) { log('no audio'); return; }
+  const { items, total } = computeLayout();
+  if (!items.length) { log('empty sequence'); return; }
+  if (fromSeqT >= total) { log('seek past end'); return; }
+  stopAll(); stopPreview(); ensureCtx();
+
+  // Find which item contains fromSeqT (first whose endInSeq > fromSeqT)
+  const startIdx = items.findIndex(it => it.endInSeq > fromSeqT);
+  const ctxStart = ctx.currentTime + 0.1;
+
+  for (let i = startIdx; i < items.length; i++) {
+    const it = items[i];
+    const isFirstPlayed = (i === startIdx);
+    const isLast = (i === items.length - 1);
+
+    let segOffset = 0;            // offset into the section to start playing from
+    let segDur = it.segDur;       // how much of the section to play
+    let cueStartCtx;
+    let fadeIn = it.fadeIn;
+    let fadeOut = it.fadeOut;
+
+    if (isFirstPlayed) {
+      const skip = Math.max(0, fromSeqT - it.startInSeq);
+      segOffset = skip;
+      segDur = it.segDur - skip;
+      cueStartCtx = ctxStart;
+      fadeIn = 0; // we're jumping in, no fade-in for the partial first cue
+    } else {
+      const seqOffsetIntoFuture = it.startInSeq - fromSeqT; // sequence-time delay
+      cueStartCtx = ctxStart + seqOffsetIntoFuture;
+    }
+    const cueEndCtx = cueStartCtx + segDur;
+
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const gain = ctx.createGain();
+    src.connect(gain).connect(ctx.destination);
+    gain.gain.setValueAtTime(fadeIn > 0 ? 0 : 1, cueStartCtx);
+    if (fadeIn  > 0) gain.gain.linearRampToValueAtTime(1, cueStartCtx + fadeIn);
+    if (fadeOut > 0 && !isLast) {
+      gain.gain.setValueAtTime(1, cueEndCtx - fadeOut);
+      gain.gain.linearRampToValueAtTime(0, cueEndCtx);
+    }
+    src.start(cueStartCtx, it.srcStart + segOffset, segDur);
+    activeSources.push(src);
+
+    const idxForRow = i;
+    setTimeout(() => {
+      document.querySelectorAll('#sequence tr').forEach(r => r.classList.remove('now'));
+      const row = document.querySelector(`#sequence tr[data-idx="${idxForRow}"]`);
+      if (row) row.classList.add('now');
+      $('playStatus').textContent = `playing ${idxForRow + 1}/${items.length}: ${it.sec.name}`;
+    }, Math.max(0, (cueStartCtx - ctx.currentTime) * 1000));
+
+    log(`▶ ${it.sec.name}: src ${(it.srcStart + segOffset).toFixed(1)}–${(it.srcStart + segOffset + segDur).toFixed(1)} @ ctx ${cueStartCtx.toFixed(2)}`);
+  }
+
+  // Drive seq scrubber
+  seqPlayMeta = { startedAtCtx: ctxStart, startedAtSeqT: fromSeqT, total };
+  const tick = () => {
+    if (!seqPlayMeta) return;
+    const pos = seqPlayMeta.startedAtSeqT + Math.max(0, ctx.currentTime - seqPlayMeta.startedAtCtx);
+    if (pos < seqPlayMeta.total) {
+      seqSeekTarget = pos;
+      updateSeqMarker(pos, seqPlayMeta.total);
+      seqRafHandle = requestAnimationFrame(tick);
+    } else {
+      stopAll();
+      $('playStatus').textContent = 'finished';
+    }
+  };
+  tick();
+}
+
+$('play').addEventListener('click', () => { seqSeekTarget = 0; playSequence(0); });
+$('playFromMarker').addEventListener('click', () => playSequence(seqSeekTarget));
+
+// ============================================================================
+// Export to WAV (via OfflineAudioContext)
+// ============================================================================
+function audioBufferToWavBlob(buf) {
+  const numCh = buf.numberOfChannels;
+  const sampleRate = buf.sampleRate;
+  const bitsPerSample = 16;
+  const bytesPerSample = bitsPerSample / 8;
+  const blockAlign = numCh * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = buf.length * blockAlign;
+  const ab = new ArrayBuffer(44 + dataSize);
+  const dv = new DataView(ab);
+
+  const writeString = (off, str) => { for (let i = 0; i < str.length; i++) dv.setUint8(off + i, str.charCodeAt(i)); };
+  writeString(0, 'RIFF');
+  dv.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  dv.setUint32(16, 16, true);            // fmt chunk size
+  dv.setUint16(20, 1, true);             // PCM
+  dv.setUint16(22, numCh, true);
+  dv.setUint32(24, sampleRate, true);
+  dv.setUint32(28, byteRate, true);
+  dv.setUint16(32, blockAlign, true);
+  dv.setUint16(34, bitsPerSample, true);
+  writeString(36, 'data');
+  dv.setUint32(40, dataSize, true);
+
+  // Interleave channels and write 16-bit PCM
+  let off = 44;
+  const channels = [];
+  for (let ch = 0; ch < numCh; ch++) channels.push(buf.getChannelData(ch));
+  for (let i = 0; i < buf.length; i++) {
+    for (let ch = 0; ch < numCh; ch++) {
+      let s = Math.max(-1, Math.min(1, channels[ch][i]));
+      s = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      dv.setInt16(off, s, true);
+      off += 2;
+    }
+  }
+  return new Blob([ab], { type: 'audio/wav' });
+}
+
+$('exportWav').addEventListener('click', async () => {
+  if (!buffer) { log('no audio'); return; }
+  const { items, total } = computeLayout();
+  if (!items.length) { log('empty sequence'); return; }
+  if (total <= 0) { log('zero-length sequence'); return; }
+
+  $('exportWav').disabled = true;
+  $('exportWav').textContent = 'rendering...';
+  log(`rendering ${total.toFixed(2)}s @ ${buffer.sampleRate}Hz...`);
+  const t0 = performance.now();
+
+  try {
+    const numCh = buffer.numberOfChannels;
+    const sr = buffer.sampleRate;
+    const oc = new OfflineAudioContext(numCh, Math.ceil(total * sr) + 1, sr);
+
+    items.forEach((it, i) => {
+      const isLast = i === items.length - 1;
+      const cueStart = it.startInSeq;
+      const cueEnd   = it.endInSeq;
+      const src = oc.createBufferSource();
+      src.buffer = buffer;
+      const gain = oc.createGain();
+      src.connect(gain).connect(oc.destination);
+      gain.gain.setValueAtTime(it.fadeIn > 0 ? 0 : 1, cueStart);
+      if (it.fadeIn  > 0) gain.gain.linearRampToValueAtTime(1, cueStart + it.fadeIn);
+      if (it.fadeOut > 0 && !isLast) {
+        gain.gain.setValueAtTime(1, cueEnd - it.fadeOut);
+        gain.gain.linearRampToValueAtTime(0, cueEnd);
+      }
+      src.start(cueStart, it.srcStart, it.segDur);
+    });
+
+    const rendered = await oc.startRendering();
+    log(`rendered in ${((performance.now()-t0)/1000).toFixed(2)}s — encoding WAV...`);
+    const blob = audioBufferToWavBlob(rendered);
+    const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
+    log(`WAV ${sizeMB} MB ready`);
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.download = `worship-sequence-${ts}.wav`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (e) {
+    log('export error: ' + e.message);
+  } finally {
+    $('exportWav').disabled = false;
+    $('exportWav').textContent = '⤓ Export WAV';
+  }
+});
+
+window.addEventListener('resize', () => { renderScrubber(); renderSeqScrubber(); });
+
+// Initial
+renderPalette();
+renderSequence();
+</script>
+
+</body>
+</html>
