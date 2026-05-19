@@ -3,8 +3,17 @@
 教會敬拜用的 YouTube 播放工具。把詩歌切段、編排播放順序、做無縫 crossfade，
 像現場指揮司琴一樣操控 YT 詩歌。
 
-最終形態是 **Edge 擴充功能 + Native Helper**，目前處於 Phase 0（HTML 原型驗證
-核心播放體驗）。詳細規劃見 [PROJECT.md](./PROJECT.md)。
+> **最終目標：Edge 擴充功能（plugin）**——教會 Windows 電腦裝起來就能用。
+> 目前處於 **Phase 0（HTML 原型）**，目的是先驗證核心播放體驗 / UX。
+> 等原型確認順手，會把這套引擎搬進擴充功能 + 配套 Native Helper（負責下載音訊）。
+> 完整規劃見 [PROJECT.md](./PROJECT.md)。
+
+## 目前進度（Phase 0 HTML 原型）
+
+![demo](./docs/images/demo-phase0.png)
+
+從字幕自動偵測段落 → 手動命名 / 微調 → 拼播放順序 → sample-accurate crossfade
+→ 匯出 WAV。
 
 ## 快速開始（Phase 0 原型）
 
